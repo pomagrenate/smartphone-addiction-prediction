@@ -108,9 +108,23 @@ def run_pipeline(
     )
     print(f"[Loader] Loaded Train Shape: {raw_train.shape}, Test Shape: {raw_test.shape}")
     
-    # 2. Preprocess & Feature Engineering
-    train_df = create_engineered_features(raw_train)
-    test_df = create_engineered_features(raw_test)
+    # 2. Preprocess & Feature Engineering with Disk Caching
+    cache_dir = os.path.join(model_dir, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    train_cache = os.path.join(cache_dir, "train_engineered.pkl")
+    test_cache = os.path.join(cache_dir, "test_engineered.pkl")
+    
+    if os.path.exists(train_cache) and os.path.exists(test_cache):
+        print(f"[Loader] Loading fast cached engineered features from '{cache_dir}'...")
+        train_df = pd.read_pickle(train_cache)
+        test_df = pd.read_pickle(test_cache)
+    else:
+        print("[Loader] Engineering features from raw dataset...")
+        train_df = create_engineered_features(raw_train)
+        test_df = create_engineered_features(raw_test)
+        train_df.to_pickle(train_cache)
+        test_df.to_pickle(test_cache)
+        print(f"[Saver] Fast cached engineered features saved to '{train_cache}'.")
     
     all_num_cols = NUMERICAL_COLS + ENGINEERED_COLS
     

@@ -69,7 +69,7 @@ if HAS_TORCH:
             curr_dim = in_dim
             for i in range(num_layers):
                 layers.append(LinearBatchEnsemble(curr_dim, d_hidden, k_models))
-                layers.append(nn.BatchNorm1d(k_models))
+                layers.append(nn.BatchNorm1d(d_hidden))
                 layers.append(nn.ReLU())
                 layers.append(nn.Dropout(dropout))
                 curr_dim = d_hidden
