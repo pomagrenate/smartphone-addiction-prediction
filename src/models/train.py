@@ -106,10 +106,19 @@ def train_tabm_fold(
             print(f"        -> [TabM Neural] Epoch {epoch + 1:02d}/{epochs:02d} | Loss: {avg_loss:.5f}")
             
     model.eval()
+    val_batch_size = 16384
+    n_val = len(val_num)
+    val_probs_list = []
+    
     with torch.no_grad():
-        val_logits = model(v_num, v_cat)
-        val_probs = torch.sigmoid(val_logits).mean(dim=1).cpu().numpy()
-        
+        for start_idx in range(0, n_val, val_batch_size):
+            end_idx = min(start_idx + val_batch_size, n_val)
+            v_num = torch.tensor(val_num[start_idx:end_idx], dtype=torch.float32, device=device)
+            v_cat = torch.tensor(val_cat[start_idx:end_idx], dtype=torch.long, device=device)
+            val_logits = model(v_num, v_cat)
+            val_probs_list.append(torch.sigmoid(val_logits).mean(dim=1).cpu().numpy())
+            
+    val_probs = np.concatenate(val_probs_list)
     return model, val_probs
 
 
@@ -316,13 +325,24 @@ def run_pipeline(
             oof_nn[val_idx] = tabm_val_preds
             
             tabm_m.eval()
+            test_batch_size = 16384
+            n_test = len(X_test_num)
+            test_probs_list = []
+            
             with torch.no_grad():
-                t_num = torch.tensor(X_test_num, dtype=torch.float32).to(device)
-                t_cat = torch.tensor(X_test_cat, dtype=torch.long).to(device)
-                t_logits = tabm_m(t_num, t_cat)
-                test_preds_nn += torch.sigmoid(t_logits).mean(dim=1).cpu().numpy() / n_splits
-                
+                for start_idx in range(0, n_test, test_batch_size):
+                    end_idx = min(start_idx + test_batch_size, n_test)
+                    b_num = torch.tensor(X_test_num[start_idx:end_idx], dtype=torch.float32, device=device)
+                    b_cat = torch.tensor(X_test_cat[start_idx:end_idx], dtype=torch.long, device=device)
+                    b_logits = tabm_m(b_num, b_cat)
+                    b_probs = torch.sigmoid(b_logits).mean(dim=1).cpu().numpy()
+                    test_probs_list.append(b_probs)
+                    
+            test_preds_nn += np.concatenate(test_probs_list) / n_splits
             torch.save(tabm_m.state_dict(), os.path.join(model_dir, f"tabm_fold_{fold}.pth"))
+            
+            if device == "cuda":
+                torch.cuda.empty_cache()
         else:
             mlp = MLPClassifier(
                 hidden_layer_sizes=(128, 64),

@@ -151,11 +151,22 @@ def run_inference(
                 model.load_state_dict(torch.load(f_path, map_location=device))
                 model.eval()
                 
+                test_batch_size = 16384
+                n_test = len(X_test_num)
+                test_probs_list = []
+                
                 with torch.no_grad():
-                    t_num = torch.tensor(X_test_num, dtype=torch.float32).to(device)
-                    t_cat = torch.tensor(X_test_cat, dtype=torch.long).to(device)
-                    t_logits = model(t_num, t_cat)
-                    test_preds_nn += torch.sigmoid(t_logits).mean(dim=1).cpu().numpy() / len(tabm_files)
+                    for start_idx in range(0, n_test, test_batch_size):
+                        end_idx = min(start_idx + test_batch_size, n_test)
+                        b_num = torch.tensor(X_test_num[start_idx:end_idx], dtype=torch.float32, device=device)
+                        b_cat = torch.tensor(X_test_cat[start_idx:end_idx], dtype=torch.long, device=device)
+                        b_logits = model(b_num, b_cat)
+                        b_probs = torch.sigmoid(b_logits).mean(dim=1).cpu().numpy()
+                        test_probs_list.append(b_probs)
+                        
+                test_preds_nn += np.concatenate(test_probs_list) / len(tabm_files)
+                if device == "cuda":
+                    torch.cuda.empty_cache()
     else:
         mlp_files = sorted(glob.glob(os.path.join(model_dir, "mlp_fold_*.pkl")))
         if len(mlp_files) > 0:
