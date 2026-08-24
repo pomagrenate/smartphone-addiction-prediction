@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore")
 from sklearn.model_selection import StratifiedKFold
 from sklearn.linear_model import Ridge
 from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 import xgboost as xgb
 from catboost import CatBoostClassifier
@@ -88,6 +89,8 @@ def train_tabm_fold(
     
     model.train()
     for epoch in range(epochs):
+        running_loss = 0.0
+        n_batches = 0
         for b_num, b_cat, b_y in loader:
             b_num, b_cat, b_y = b_num.to(device), b_cat.to(device), b_y.to(device)
             optimizer.zero_grad()
@@ -95,6 +98,12 @@ def train_tabm_fold(
             loss = criterion(logits, b_y)
             loss.backward()
             optimizer.step()
+            running_loss += loss.item()
+            n_batches += 1
+            
+        if (epoch + 1) % 5 == 0 or epoch == 0 or epoch == epochs - 1:
+            avg_loss = running_loss / max(n_batches, 1)
+            print(f"        -> [TabM Neural] Epoch {epoch + 1:02d}/{epochs:02d} | Loss: {avg_loss:.5f}")
             
     model.eval()
     with torch.no_grad():
@@ -214,12 +223,15 @@ def run_pipeline(
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     
     for fold, (train_idx, val_idx) in enumerate(skf.split(X_tree, y_binary)):
-        print(f"\n--- Training & Checkpointing Fold {fold + 1}/{n_splits} ---")
+        print(f"\n" + "-" * 60)
+        print(f"--- Fold {fold + 1}/{n_splits} | Train: {len(train_idx):,} rows | Val: {len(val_idx):,} rows ---")
+        print("-" * 60)
         
         X_tr_tree, y_tr = X_tree[train_idx], y_binary[train_idx]
         X_va_tree, y_va = X_tree[val_idx], y_binary[val_idx]
         
         # 1. LightGBM
+        print(f"  [1/4] Training LightGBM...")
         lgb_model = lgb.LGBMClassifier(
             n_estimators=300,
             learning_rate=0.03,
@@ -234,10 +246,13 @@ def run_pipeline(
         )
         oof_lgb[val_idx] = lgb_model.predict_proba(X_va_tree)[:, 1]
         test_preds_lgb += lgb_model.predict_proba(X_test_tree)[:, 1] / n_splits
+        val_auc_lgb = roc_auc_score(y_va, oof_lgb[val_idx])
+        print(f"        -> LightGBM Val ROC-AUC: {val_auc_lgb:.5f} | Test predictions generated")
         with open(os.path.join(model_dir, f"lgb_fold_{fold}.pkl"), "wb") as f:
             pickle.dump(lgb_model, f)
             
         # 2. XGBoost (GPU Accelerated if available)
+        print(f"  [2/4] Training XGBoost (GPU: {use_gpu})...")
         xgb_kwargs = {
             "n_estimators": 300,
             "learning_rate": 0.03,
@@ -258,10 +273,13 @@ def run_pipeline(
         )
         oof_xgb[val_idx] = xgb_model.predict_proba(X_va_tree)[:, 1]
         test_preds_xgb += xgb_model.predict_proba(X_test_tree)[:, 1] / n_splits
+        val_auc_xgb = roc_auc_score(y_va, oof_xgb[val_idx])
+        print(f"        -> XGBoost Val ROC-AUC:  {val_auc_xgb:.5f} | Test predictions generated")
         with open(os.path.join(model_dir, f"xgb_fold_{fold}.pkl"), "wb") as f:
             pickle.dump(xgb_model, f)
             
         # 3. CatBoost (GPU Accelerated if available)
+        print(f"  [3/4] Training CatBoost (GPU: {use_gpu})...")
         cat_kwargs = {
             "iterations": 300,
             "learning_rate": 0.03,
@@ -276,10 +294,13 @@ def run_pipeline(
         cat_model.fit(X_tr_tree, y_tr, eval_set=(X_va_tree, y_va), early_stopping_rounds=50)
         oof_cat[val_idx] = cat_model.predict_proba(X_va_tree)[:, 1]
         test_preds_cat += cat_model.predict_proba(X_test_tree)[:, 1] / n_splits
+        val_auc_cat = roc_auc_score(y_va, oof_cat[val_idx])
+        print(f"        -> CatBoost Val ROC-AUC: {val_auc_cat:.5f} | Test predictions generated")
         with open(os.path.join(model_dir, f"cat_fold_{fold}.pkl"), "wb") as f:
             pickle.dump(cat_model, f)
             
         # 4. Neural Model Checkpoint
+        print(f"  [4/4] Training TabM Neural Backbone...")
         if HAS_TORCH:
             device = get_safe_torch_device()
             tabm_m, tabm_val_preds = train_tabm_fold(
@@ -318,6 +339,13 @@ def run_pipeline(
             test_preds_nn += mlp.predict_proba(X_te_nn)[:, 1] / n_splits
             with open(os.path.join(model_dir, f"mlp_fold_{fold}.pkl"), "wb") as f:
                 pickle.dump(mlp, f)
+                
+        val_auc_nn = roc_auc_score(y_va, oof_nn[val_idx])
+        print(f"        -> TabM Neural Val ROC-AUC: {val_auc_nn:.5f} | Test predictions generated")
+        
+        fold_blend = (oof_lgb[val_idx] + oof_xgb[val_idx] + oof_cat[val_idx] + oof_nn[val_idx]) / 4.0
+        fold_auc = roc_auc_score(y_va, fold_blend)
+        print(f"  ✓ Fold {fold + 1}/{n_splits} Summary | Blend Val ROC-AUC: {fold_auc:.5f}")
                 
     print("\n" + "=" * 60)
     print("Out-Of-Fold Evaluation Summary")
