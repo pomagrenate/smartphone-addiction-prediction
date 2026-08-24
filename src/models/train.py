@@ -191,6 +191,8 @@ def run_pipeline(
         use_gpu = torch.cuda.is_available()
     print(f"[Pipeline] PyTorch Available: {HAS_TORCH} | GPU Acceleration: {use_gpu} | Folds: {n_splits}")
     
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    
     for fold, (train_idx, val_idx) in enumerate(skf.split(X_tree, y_binary)):
         print(f"\n--- Training & Checkpointing Fold {fold + 1}/{n_splits} ---")
         
