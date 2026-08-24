@@ -319,7 +319,8 @@ def run_pipeline(
                 val_num=X_num[val_idx],
                 val_cat=X_cat[val_idx],
                 cat_cardinalities=cat_cardinalities,
-                epochs=20,
+                epochs=50,
+                batch_size=4096,
                 device=device
             )
             oof_nn[val_idx] = tabm_val_preds

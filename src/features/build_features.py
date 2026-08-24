@@ -26,6 +26,14 @@ ENGINEERED_COLS = [
     "weekend_excess_time",
     "distress_score",
     "screen_to_work_ratio",
+    "leisure_intensity",
+    "app_engagement_rate",
+    "passive_vs_active_ratio",
+    "sleep_deficit",
+    "addiction_risk",
+    "weekend_to_weekday_ratio",
+    "stress_screen_interaction",
+    "productivity_fraction",
 ]
 
 
@@ -70,6 +78,35 @@ def create_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     
     # 7. Screen time relative to productive work/study
     df["screen_to_work_ratio"] = screen_time / (df["work_study_hours"].clip(lower=0.1) + eps)
+    
+    # 8. Digital leisure intensity (social + gaming per hour of screen)
+    df["leisure_intensity"] = (df["social_media_hours"] + df["gaming_hours"]) / (screen_time + eps) * df["stress_level"]
+    
+    # 9. App engagement rate (opens per hour)
+    df["app_engagement_rate"] = df["app_opens_per_day"] / (screen_time + eps)
+    
+    # 10. Passive usage estimate (notifications vs app opens ratio)
+    df["passive_vs_active_ratio"] = df["notifications_per_day"] / (df["app_opens_per_day"].clip(lower=1) + eps)
+    
+    # 11. Sleep efficiency (screen time cuts into 8h baseline)
+    df["sleep_deficit"] = (8.0 - df["sleep_hours"]).clip(lower=0)
+    
+    # 12. Combined addiction risk proxy
+    df["addiction_risk"] = (
+        df["social_media_hours"] * 0.4 +
+        df["gaming_hours"] * 0.3 +
+        df["stress_level"] * 0.2 -
+        df["sleep_hours"] * 0.1
+    )
+    
+    # 13. Weekend vs weekday usage balance
+    df["weekend_to_weekday_ratio"] = df["weekend_screen_time"] / (screen_time + eps)
+    
+    # 14. Stress-amplified screen time
+    df["stress_screen_interaction"] = screen_time * df["stress_level"]
+    
+    # 15. Productivity time fraction
+    df["productivity_fraction"] = df["work_study_hours"] / (screen_time + eps)
     
     return df
 
