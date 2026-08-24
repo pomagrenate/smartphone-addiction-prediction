@@ -20,6 +20,21 @@ if HAS_TORCH:
     import torch
 
 
+def get_safe_torch_device() -> str:
+    """Return 'cuda' only if PyTorch CUDA execution actually succeeds on the current GPU architecture."""
+    if not HAS_TORCH or not torch.cuda.is_available():
+        return "cpu"
+    try:
+        cap = torch.cuda.get_device_capability()
+        if cap[0] < 7:
+            return "cpu"
+        test_t = torch.zeros(1, device="cuda")
+        _ = test_t + 1
+        return "cuda"
+    except Exception:
+        return "cpu"
+
+
 def run_inference(
     test_path: str = None,
     data_dir: str = None,
@@ -118,7 +133,7 @@ def run_inference(
     if HAS_TORCH:
         tabm_files = sorted(glob.glob(os.path.join(model_dir, "tabm_fold_*.pth")))
         if len(tabm_files) > 0:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = get_safe_torch_device()
             cat_cardinalities = [len(encoders[c].classes_) + 1 for c in cat_cols]
             
             for f_path in tabm_files:

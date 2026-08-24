@@ -30,6 +30,23 @@ MODEL_DIR = "models"
 SUBMISSION_DIR = "submissions"
 
 
+def get_safe_torch_device() -> str:
+    """Return 'cuda' only if PyTorch CUDA execution actually succeeds on the current GPU architecture."""
+    if not HAS_TORCH or not torch.cuda.is_available():
+        return "cpu"
+    try:
+        cap = torch.cuda.get_device_capability()
+        if cap[0] < 7:
+            print(f"[Device Warning] GPU sm_{cap[0]}{cap[1]} (Tesla P100) lacks kernel support in this PyTorch build. Using CPU for TabM.")
+            return "cpu"
+        test_t = torch.zeros(1, device="cuda")
+        _ = test_t + 1
+        return "cuda"
+    except Exception as e:
+        print(f"[Device Warning] CUDA execution failed ({e}). Using CPU for TabM.")
+        return "cpu"
+
+
 def train_tabm_fold(
     train_num: np.ndarray,
     train_cat: np.ndarray,
@@ -261,7 +278,7 @@ def run_pipeline(
             
         # 4. Neural Model Checkpoint
         if HAS_TORCH:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = get_safe_torch_device()
             tabm_m, tabm_val_preds = train_tabm_fold(
                 train_num=X_num[train_idx],
                 train_cat=X_cat[train_idx],
