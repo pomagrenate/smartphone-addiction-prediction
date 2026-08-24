@@ -9,8 +9,11 @@ if PROJECT_ROOT not in sys.path:
 import glob
 import pickle
 import argparse
+import warnings
 import numpy as np
 import pandas as pd
+
+warnings.filterwarnings("ignore")
 
 from src.features.build_features import create_engineered_features
 from src.utils.metrics import rank_transform

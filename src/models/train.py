@@ -8,8 +8,11 @@ if PROJECT_ROOT not in sys.path:
 
 import argparse
 import pickle
+import warnings
 import numpy as np
 import pandas as pd
+
+warnings.filterwarnings("ignore")
 from sklearn.model_selection import StratifiedKFold
 from sklearn.linear_model import Ridge
 from sklearn.neural_network import MLPClassifier
