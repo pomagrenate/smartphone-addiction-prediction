@@ -185,8 +185,11 @@ def run_pipeline(
     test_preds_cat = np.zeros(len(test_df))
     test_preds_nn = np.zeros(len(test_df))
     
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    print(f"[Pipeline] PyTorch Available: {HAS_TORCH} | Folds: {n_splits}")
+    # Detect GPU availability for XGBoost, CatBoost, and PyTorch TabM
+    use_gpu = False
+    if HAS_TORCH:
+        use_gpu = torch.cuda.is_available()
+    print(f"[Pipeline] PyTorch Available: {HAS_TORCH} | GPU Acceleration: {use_gpu} | Folds: {n_splits}")
     
     for fold, (train_idx, val_idx) in enumerate(skf.split(X_tree, y_binary)):
         print(f"\n--- Training & Checkpointing Fold {fold + 1}/{n_splits} ---")
@@ -212,15 +215,20 @@ def run_pipeline(
         with open(os.path.join(model_dir, f"lgb_fold_{fold}.pkl"), "wb") as f:
             pickle.dump(lgb_model, f)
             
-        # 2. XGBoost
-        xgb_model = xgb.XGBClassifier(
-            n_estimators=300,
-            learning_rate=0.03,
-            max_depth=6,
-            random_state=seed + fold,
-            eval_metric="logloss",
-            early_stopping_rounds=50
-        )
+        # 2. XGBoost (GPU Accelerated if available)
+        xgb_kwargs = {
+            "n_estimators": 300,
+            "learning_rate": 0.03,
+            "max_depth": 6,
+            "random_state": seed + fold,
+            "eval_metric": "logloss",
+            "early_stopping_rounds": 50,
+            "tree_method": "hist"
+        }
+        if use_gpu:
+            xgb_kwargs["device"] = "cuda"
+            
+        xgb_model = xgb.XGBClassifier(**xgb_kwargs)
         xgb_model.fit(
             X_tr_tree, y_tr,
             eval_set=[(X_va_tree, y_va)],
@@ -231,14 +239,18 @@ def run_pipeline(
         with open(os.path.join(model_dir, f"xgb_fold_{fold}.pkl"), "wb") as f:
             pickle.dump(xgb_model, f)
             
-        # 3. CatBoost
-        cat_model = CatBoostClassifier(
-            iterations=300,
-            learning_rate=0.03,
-            depth=6,
-            random_seed=seed + fold,
-            verbose=False
-        )
+        # 3. CatBoost (GPU Accelerated if available)
+        cat_kwargs = {
+            "iterations": 300,
+            "learning_rate": 0.03,
+            "depth": 6,
+            "random_seed": seed + fold,
+            "verbose": False
+        }
+        if use_gpu:
+            cat_kwargs["task_type"] = "GPU"
+            
+        cat_model = CatBoostClassifier(**cat_kwargs)
         cat_model.fit(X_tr_tree, y_tr, eval_set=(X_va_tree, y_va), early_stopping_rounds=50)
         oof_cat[val_idx] = cat_model.predict_proba(X_va_tree)[:, 1]
         test_preds_cat += cat_model.predict_proba(X_test_tree)[:, 1] / n_splits
