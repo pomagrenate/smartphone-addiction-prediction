@@ -33,6 +33,19 @@ def create_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     """Create domain-specific behavioral metrics from raw telemetry columns."""
     df = df.copy()
     
+    # Coerce all numerical columns to float, handling potential string/object dtypes or ordinal text
+    text_map = {'low': 1, 'medium': 2, 'high': 3, 'very high': 4, 'extreme': 5}
+    for col in NUMERICAL_COLS:
+        if col in df.columns:
+            if df[col].dtype == 'object':
+                converted = pd.to_numeric(df[col], errors='coerce')
+                if converted.isna().any():
+                    mapped = df[col].astype(str).str.lower().map(text_map)
+                    converted = converted.fillna(mapped)
+                df[col] = converted.fillna(0).astype(float)
+            else:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(float)
+
     eps = 1e-5
     screen_time = df["daily_screen_time_hours"].clip(lower=0.1)
     
